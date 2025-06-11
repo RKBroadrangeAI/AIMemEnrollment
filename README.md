@@ -33,7 +33,7 @@ An intelligent membership enrollment system powered by OpenAI GPT-4, LangGraph w
 ### Database
 - **Qdrant**: Single vector database instance
   - Collection: `enrollment_data`
-  - Vector dimensions: 768 (OpenAI embeddings)
+  - Vector dimensions: 1536 (OpenAI embeddings)
   - Index: HNSW for fast similarity search
   - Payloads: sessions, tickets, summaries, logs, zendesk_tickets
 
@@ -132,7 +132,7 @@ chmod +x scripts/deploy.sh
 ## Qdrant Schema
 
 ### Collection: `enrollment_data`
-- **Vectors**: 768-dimensional OpenAI embeddings
+- **Vectors**: 1536-dimensional OpenAI embeddings
 - **Distance**: Cosine similarity
 - **Index**: HNSW for fast search
 
