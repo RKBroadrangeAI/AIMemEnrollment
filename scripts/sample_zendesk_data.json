@@ -1,0 +1,57 @@
+[
+  {
+    "id": "12345",
+    "subject": "Premium Membership Inquiry",
+    "description": "Customer asking about premium membership benefits and pricing",
+    "status": "open",
+    "priority": "normal",
+    "requester_email": "john.doe@example.com",
+    "created_at": "2024-01-15T10:30:00Z",
+    "updated_at": "2024-01-15T10:30:00Z",
+    "tags": ["membership", "premium", "inquiry"]
+  },
+  {
+    "id": "12346",
+    "subject": "Corporate Membership Setup",
+    "description": "Large company interested in bulk membership enrollment for employees",
+    "status": "pending",
+    "priority": "high",
+    "requester_email": "hr@techcorp.com",
+    "created_at": "2024-01-16T14:20:00Z",
+    "updated_at": "2024-01-16T15:45:00Z",
+    "tags": ["membership", "corporate", "bulk", "enterprise"]
+  },
+  {
+    "id": "12347",
+    "subject": "Basic Membership Questions",
+    "description": "New user has questions about basic membership features",
+    "status": "solved",
+    "priority": "low",
+    "requester_email": "sarah.smith@gmail.com",
+    "created_at": "2024-01-14T09:15:00Z",
+    "updated_at": "2024-01-14T16:30:00Z",
+    "tags": ["membership", "basic", "support"]
+  },
+  {
+    "id": "12348",
+    "subject": "Membership Upgrade Request",
+    "description": "Existing basic member wants to upgrade to premium",
+    "status": "open",
+    "priority": "normal",
+    "requester_email": "mike.johnson@company.com",
+    "created_at": "2024-01-17T11:45:00Z",
+    "updated_at": "2024-01-17T11:45:00Z",
+    "tags": ["membership", "upgrade", "premium"]
+  },
+  {
+    "id": "12349",
+    "subject": "Billing Issue - Membership",
+    "description": "Customer reporting billing problem with their membership subscription",
+    "status": "pending",
+    "priority": "urgent",
+    "requester_email": "billing@customer.org",
+    "created_at": "2024-01-18T08:00:00Z",
+    "updated_at": "2024-01-18T09:30:00Z",
+    "tags": ["membership", "billing", "urgent", "subscription"]
+  }
+]
