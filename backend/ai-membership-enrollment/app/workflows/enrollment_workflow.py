@@ -11,13 +11,14 @@ from app.database.qdrant_client import QdrantManager
 from app.schemas.enrollment import ChatResponse
 
 class EnrollmentState(TypedDict):
-    messages: Annotated[List[Dict[str, str]], add_messages]
     session_id: str
     user_id: str
     current_step: str
     collected_data: Dict[str, Any]
     is_complete: bool
     ticket_generated: bool
+    last_user_message: str
+    response_message: str
 
 class EnrollmentWorkflow:
     def __init__(self, qdrant_manager: QdrantManager):
@@ -30,53 +31,11 @@ class EnrollmentWorkflow:
     def _create_workflow(self) -> StateGraph:
         workflow = StateGraph(EnrollmentState)
         
-        workflow.add_node("start", self._start_node)
-        workflow.add_node("ask_name", self._ask_name_node)
-        workflow.add_node("ask_email", self._ask_email_node)
-        workflow.add_node("ask_program_type", self._ask_program_type_node)
-        workflow.add_node("ask_company", self._ask_company_node)
-        workflow.add_node("validate_profile", self._validate_profile_node)
-        workflow.add_node("generate_ticket", self._generate_ticket_node)
-        workflow.add_node("complete", self._complete_node)
+        workflow.add_node("process_conversation", self._process_conversation_node)
         
-        workflow.add_edge("start", "ask_name")
-        workflow.add_conditional_edges(
-            "ask_name",
-            self._should_continue,
-            {
-                "ask_email": "ask_email",
-                "ask_name": "ask_name"
-            }
-        )
-        workflow.add_conditional_edges(
-            "ask_email",
-            self._should_continue,
-            {
-                "ask_program_type": "ask_program_type",
-                "ask_email": "ask_email"
-            }
-        )
-        workflow.add_conditional_edges(
-            "ask_program_type",
-            self._should_continue,
-            {
-                "ask_company": "ask_company",
-                "ask_program_type": "ask_program_type"
-            }
-        )
-        workflow.add_conditional_edges(
-            "ask_company",
-            self._should_continue,
-            {
-                "validate_profile": "validate_profile",
-                "ask_company": "ask_company"
-            }
-        )
-        workflow.add_edge("validate_profile", "generate_ticket")
-        workflow.add_edge("generate_ticket", "complete")
-        workflow.add_edge("complete", END)
+        workflow.add_edge("process_conversation", END)
         
-        workflow.set_entry_point("start")
+        workflow.set_entry_point("process_conversation")
         
         return workflow.compile()
     
@@ -89,33 +48,32 @@ class EnrollmentWorkflow:
             
             if existing_session:
                 state = EnrollmentState(
-                    messages=existing_session.get("messages", []),
                     session_id=session_id,
                     user_id=user_id,
                     current_step=existing_session.get("current_step", "start"),
                     collected_data=existing_session.get("collected_data", {}),
                     is_complete=existing_session.get("is_complete", False),
-                    ticket_generated=existing_session.get("ticket_generated", False)
+                    ticket_generated=existing_session.get("ticket_generated", False),
+                    last_user_message=message,
+                    response_message=""
                 )
             else:
                 state = EnrollmentState(
-                    messages=[],
                     session_id=session_id,
                     user_id=user_id,
                     current_step="start",
                     collected_data={},
                     is_complete=False,
-                    ticket_generated=False
+                    ticket_generated=False,
+                    last_user_message=message,
+                    response_message=""
                 )
             
-            state["messages"].append({"role": "user", "content": message})
+            result = await self.workflow.ainvoke(state, config={"recursion_limit": 5})
             
-            result = await self.workflow.ainvoke(state)
-            
-            response_message = result["messages"][-1]["content"] if result["messages"] else "I'm here to help with your membership enrollment."
+            response_message = result.get("response_message", "I'm here to help with your membership enrollment.")
             
             session_data = {
-                "messages": result["messages"],
                 "current_step": result["current_step"],
                 "collected_data": result["collected_data"],
                 "is_complete": result["is_complete"],
@@ -144,65 +102,144 @@ class EnrollmentWorkflow:
                 collected_data={}
             )
     
-    async def _start_node(self, state: EnrollmentState) -> EnrollmentState:
-        welcome_message = "Welcome to our membership enrollment process! I'm here to help you get started. Let's begin by collecting some basic information."
-        state["messages"].append({"role": "assistant", "content": welcome_message})
-        state["current_step"] = "ask_name"
-        return state
-    
-    async def _ask_name_node(self, state: EnrollmentState) -> EnrollmentState:
-        if "name" not in state["collected_data"]:
-            message = "What is your full name?"
-            state["messages"].append({"role": "assistant", "content": message})
-        else:
-            last_user_message = next((msg["content"] for msg in reversed(state["messages"]) if msg["role"] == "user"), "")
-            if last_user_message and not state["collected_data"].get("name"):
-                state["collected_data"]["name"] = last_user_message.strip()
-                state["current_step"] = "ask_email"
-                confirmation = f"Thank you, {state['collected_data']['name']}! "
-                state["messages"].append({"role": "assistant", "content": confirmation})
-        return state
-    
-    async def _ask_email_node(self, state: EnrollmentState) -> EnrollmentState:
-        if "email" not in state["collected_data"]:
-            message = "What is your email address?"
-            state["messages"].append({"role": "assistant", "content": message})
-        else:
-            last_user_message = next((msg["content"] for msg in reversed(state["messages"]) if msg["role"] == "user"), "")
+    async def _process_conversation_node(self, state: EnrollmentState) -> EnrollmentState:
+        last_user_message = state["last_user_message"]
+        
+        if state["current_step"] == "start":
+            welcome_message = "Welcome to our membership enrollment process! I'm here to help you get started. What is your full name?"
+            state["response_message"] = welcome_message
+            state["current_step"] = "ask_name"
+            return state
+        
+        if state["current_step"] == "ask_name" and "name" not in state["collected_data"]:
+            if last_user_message and len(last_user_message.strip()) > 1:
+                if not any(greeting in last_user_message.lower() for greeting in ["hello", "hi", "hey", "want to enroll", "enroll", "i want", "help me"]):
+                    state["collected_data"]["name"] = last_user_message.strip()
+                    state["current_step"] = "ask_email"
+                    message = f"Thank you, {state['collected_data']['name']}! What is your email address?"
+                    state["response_message"] = message
+                else:
+                    message = "I need your full name to continue with the enrollment. What is your full name?"
+                    state["response_message"] = message
+        
+        elif state["current_step"] == "ask_email" and "email" not in state["collected_data"]:
             if last_user_message and "@" in last_user_message:
                 state["collected_data"]["email"] = last_user_message.strip()
                 state["current_step"] = "ask_program_type"
-                confirmation = "Great! I've recorded your email address."
-                state["messages"].append({"role": "assistant", "content": confirmation})
-            else:
+                message = "Great! What type of membership program are you interested in? (e.g., Basic, Premium, Corporate)"
+                state["response_message"] = message
+            elif last_user_message:
                 message = "Please provide a valid email address."
-                state["messages"].append({"role": "assistant", "content": message})
+                state["response_message"] = message
+        
+        elif state["current_step"] == "ask_program_type" and "program_type" not in state["collected_data"]:
+            if last_user_message and last_user_message.strip():
+                state["collected_data"]["program_type"] = last_user_message.strip()
+                state["current_step"] = "ask_company"
+                message = f"Excellent! You're interested in the {state['collected_data']['program_type']} program. What is your company name?"
+                state["response_message"] = message
+        
+        elif state["current_step"] == "ask_company" and "company" not in state["collected_data"]:
+            if last_user_message and last_user_message.strip():
+                state["collected_data"]["company"] = last_user_message.strip()
+                state["current_step"] = "complete"
+                
+                try:
+                    ticket_data = {
+                        "ticket_id": str(uuid.uuid4()),
+                        "subject": f"Membership Enrollment - {state['collected_data'].get('name', 'Unknown')}",
+                        "description": f"New membership enrollment request for {state['collected_data'].get('program_type', 'Unknown')} program",
+                        "category": "MP",
+                        "assignee": "membership-team",
+                        "priority": "normal",
+                        "status": "open",
+                        "requester_email": state["collected_data"].get("email", ""),
+                        "member_details": state["collected_data"],
+                        "created_at": datetime.utcnow().isoformat()
+                    }
+                    
+                    ticket_text = f"{ticket_data['subject']} {ticket_data['description']}"
+                    embedding = await self.openai_service.get_embedding(ticket_text)
+                    
+                    await self.qdrant_manager.store_ticket_data(
+                        session_id=state["session_id"],
+                        ticket_data=ticket_data,
+                        embedding=embedding
+                    )
+                    
+                    state["ticket_generated"] = True
+                    state["is_complete"] = True
+                    
+                    message = f"Perfect! I have all the information I need. Your membership enrollment ticket (ID: {ticket_data['ticket_id'][:8]}...) has been generated and is being processed by our membership team. Your enrollment is complete!"
+                    state["response_message"] = message
+                    
+                except Exception as e:
+                    logging.error(f"Ticket generation error: {str(e)}")
+                    state["is_complete"] = True
+                    message = "Perfect! I have all the information I need. Your membership enrollment is complete! You can download a summary of your enrollment or view your ticket details."
+                    state["response_message"] = message
+        
+        return state
+    
+    def _determine_next_step(self, state: EnrollmentState) -> str:
+        if state["is_complete"]:
+            return END
+        return "process_conversation"
+    
+    async def _ask_name_node(self, state: EnrollmentState) -> EnrollmentState:
+        if "name" in state["collected_data"]:
+            return state
+        
+        already_asked_for_name = False
+        if "name" in state["collected_data"] or state["current_step"] != "ask_name":
+            already_asked_for_name = True
+        
+        if not already_asked_for_name:
+            message = "What is your full name?"
+            state["response_message"] = message
+        
+        return state
+    
+    async def _ask_email_node(self, state: EnrollmentState) -> EnrollmentState:
+        last_user_message = state.get("last_user_message", "")
+        
+        if "email" not in state["collected_data"]:
+            message = "What is your email address?"
+            state["response_message"] = message
+        elif last_user_message and "@" in last_user_message:
+            state["collected_data"]["email"] = last_user_message.strip()
+            confirmation = "Great! I've recorded your email address."
+            state["response_message"] = confirmation
+        elif last_user_message:
+            message = "Please provide a valid email address."
+            state["response_message"] = message
+        
         return state
     
     async def _ask_program_type_node(self, state: EnrollmentState) -> EnrollmentState:
+        last_user_message = state.get("last_user_message", "")
+        
         if "program_type" not in state["collected_data"]:
             message = "What type of membership program are you interested in? (e.g., Basic, Premium, Corporate)"
-            state["messages"].append({"role": "assistant", "content": message})
-        else:
-            last_user_message = next((msg["content"] for msg in reversed(state["messages"]) if msg["role"] == "user"), "")
-            if last_user_message:
-                state["collected_data"]["program_type"] = last_user_message.strip()
-                state["current_step"] = "ask_company"
-                confirmation = f"Excellent! You're interested in the {state['collected_data']['program_type']} program."
-                state["messages"].append({"role": "assistant", "content": confirmation})
+            state["response_message"] = message
+        elif last_user_message and last_user_message.strip():
+            state["collected_data"]["program_type"] = last_user_message.strip()
+            confirmation = f"Excellent! You're interested in the {state['collected_data']['program_type']} program."
+            state["response_message"] = confirmation
+        
         return state
     
     async def _ask_company_node(self, state: EnrollmentState) -> EnrollmentState:
+        last_user_message = state.get("last_user_message", "")
+        
         if "company" not in state["collected_data"]:
             message = "What is your company name?"
-            state["messages"].append({"role": "assistant", "content": message})
-        else:
-            last_user_message = next((msg["content"] for msg in reversed(state["messages"]) if msg["role"] == "user"), "")
-            if last_user_message:
-                state["collected_data"]["company"] = last_user_message.strip()
-                state["current_step"] = "validate_profile"
-                confirmation = "Perfect! I have all the information I need."
-                state["messages"].append({"role": "assistant", "content": confirmation})
+            state["response_message"] = message
+        elif last_user_message and last_user_message.strip():
+            state["collected_data"]["company"] = last_user_message.strip()
+            confirmation = "Perfect! I have all the information I need."
+            state["response_message"] = confirmation
+        
         return state
     
     async def _validate_profile_node(self, state: EnrollmentState) -> EnrollmentState:
@@ -211,11 +248,11 @@ class EnrollmentWorkflow:
         
         if missing_fields:
             message = f"I still need the following information: {', '.join(missing_fields)}"
-            state["messages"].append({"role": "assistant", "content": message})
+            state["response_message"] = message
             state["current_step"] = f"ask_{missing_fields[0]}"
         else:
             message = "Let me validate your information and prepare your membership enrollment."
-            state["messages"].append({"role": "assistant", "content": message})
+            state["response_message"] = message
             state["current_step"] = "generate_ticket"
         
         return state
@@ -248,35 +285,40 @@ class EnrollmentWorkflow:
             state["current_step"] = "complete"
             
             message = f"Perfect! I've generated your membership enrollment ticket (ID: {ticket_data['ticket_id'][:8]}...). Your enrollment is now being processed by our membership team."
-            state["messages"].append({"role": "assistant", "content": message})
+            state["response_message"] = message
             
         except Exception as e:
             logging.error(f"Ticket generation error: {str(e)}")
             message = "I encountered an issue generating your ticket. Please try again or contact support."
-            state["messages"].append({"role": "assistant", "content": message})
+            state["response_message"] = message
         
         return state
     
     async def _complete_node(self, state: EnrollmentState) -> EnrollmentState:
         state["is_complete"] = True
         completion_message = "Your membership enrollment is complete! You can download a summary of your enrollment or view your ticket details. Is there anything else I can help you with?"
-        state["messages"].append({"role": "assistant", "content": completion_message})
+        state["response_message"] = completion_message
         return state
     
-    def _should_continue(self, state: EnrollmentState) -> str:
-        current_step = state["current_step"]
-        collected_data = state["collected_data"]
-        
-        if current_step == "ask_name" and "name" in collected_data:
+    def _should_continue_from_name(self, state: EnrollmentState) -> str:
+        if "name" in state["collected_data"]:
             return "ask_email"
-        elif current_step == "ask_email" and "email" in collected_data:
+        return "ask_name"
+    
+    def _should_continue_from_email(self, state: EnrollmentState) -> str:
+        if "email" in state["collected_data"]:
             return "ask_program_type"
-        elif current_step == "ask_program_type" and "program_type" in collected_data:
+        return "ask_email"
+    
+    def _should_continue_from_program_type(self, state: EnrollmentState) -> str:
+        if "program_type" in state["collected_data"]:
             return "ask_company"
-        elif current_step == "ask_company" and "company" in collected_data:
+        return "ask_program_type"
+    
+    def _should_continue_from_company(self, state: EnrollmentState) -> str:
+        if "company" in state["collected_data"]:
             return "validate_profile"
-        
-        return current_step
+        return "ask_company"
     
     async def generate_pdf_summary(self, session_id: str) -> str:
         try:
