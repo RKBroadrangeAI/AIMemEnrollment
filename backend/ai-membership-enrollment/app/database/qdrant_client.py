@@ -22,7 +22,7 @@ class QdrantManager:
             if not collection_exists:
                 self.client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+                    vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
                 )
                 logging.info(f"Created collection: {self.collection_name}")
                 
@@ -82,7 +82,7 @@ class QdrantManager:
         
         points = []
         for i, question in enumerate(sample_questions):
-            dummy_embedding = [0.0] * 768
+            dummy_embedding = [0.0] * 1536
             point = PointStruct(
                 id=str(uuid.uuid4()),
                 vector=dummy_embedding,
