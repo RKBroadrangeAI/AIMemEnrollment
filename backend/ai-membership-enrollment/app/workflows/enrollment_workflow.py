@@ -74,10 +74,17 @@ class EnrollmentWorkflow:
             response_message = result.get("response_message", "I'm here to help with your membership enrollment.")
             
             session_data = {
+                "session_id": session_id,
+                "user_id": user_id,
+                "messages": [
+                    {"role": "user", "content": message, "timestamp": datetime.utcnow().isoformat()},
+                    {"role": "assistant", "content": response_message, "timestamp": datetime.utcnow().isoformat()}
+                ],
                 "current_step": result["current_step"],
                 "collected_data": result["collected_data"],
                 "is_complete": result["is_complete"],
                 "ticket_generated": result["ticket_generated"],
+                "created_at": datetime.utcnow().isoformat() if not existing_session else existing_session.get("created_at"),
                 "updated_at": datetime.utcnow().isoformat()
             }
             

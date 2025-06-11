@@ -7,7 +7,7 @@ This document describes the Qdrant vector database schema used in the AI Members
 ### Collection Name: `enrollment_data`
 
 **Configuration:**
-- **Vector Size**: 768 dimensions (OpenAI text-embedding-ada-002)
+- **Vector Size**: 1536 dimensions (OpenAI text-embedding-ada-002)
 - **Distance Metric**: Cosine similarity
 - **Index Type**: HNSW (Hierarchical Navigable Small World)
 - **HNSW Parameters**:
