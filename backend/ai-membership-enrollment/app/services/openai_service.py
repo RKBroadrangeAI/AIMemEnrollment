@@ -47,7 +47,7 @@ class OpenAIService:
     
     async def get_embedding(self, text: str) -> List[float]:
         if not self.is_configured:
-            return [0.0] * 768
+            return [0.0] * 1536
         
         try:
             embedding = await self.embeddings.aembed_query(text)
@@ -58,7 +58,7 @@ class OpenAIService:
     
     async def get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
         if not self.is_configured:
-            return [[0.0] * 768 for _ in texts]
+            return [[0.0] * 1536 for _ in texts]
         
         try:
             embeddings = await self.embeddings.aembed_documents(texts)
